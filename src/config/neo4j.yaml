@@ -2,3 +2,6 @@ neo4j:
   uri: bolt://localhost:7687
   user: neo4j
   password: something_secret
+
+llama:
+  model: meta-llama/Meta-Llama-3-8B-Instruct

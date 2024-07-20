@@ -1,11 +1,12 @@
 from src.models.node2vec import Node2VecModel
-from src.models.base import PrecomputedEmbedding
+from src.models.emb import PrecomputedEmbedding
 from src.utils.json import CustomJSONEncoder
+from src.models.llama import get_llama_model
 from llama_index.vector_stores.neo4jvector import Neo4jVectorStore
 from llama_index.core.schema import TextNode
 
 # from llama_index.llms.ollama import Ollama
-from llama_index.core import Settings, VectorStoreIndex
+from llama_index.core import VectorStoreIndex, set_global_tokenizer
 from neo4j import GraphDatabase
 import networkx as nx
 import torch
@@ -19,12 +20,14 @@ class GraphEmbeddingRAG:
         neo4j_uri,
         neo4j_user,
         neo4j_password,
+        llama_path,
         embedding_dim=64,
         model_class=Node2VecModel,
     ):
         self.neo4j_uri = neo4j_uri
         self.neo4j_user = neo4j_user
         self.neo4j_password = neo4j_password
+        self.llama_path = llama_path
         self.embedding_dim = embedding_dim
         self.embedding_model = model_class(embedding_dim)
         self.graph = None
@@ -33,6 +36,9 @@ class GraphEmbeddingRAG:
         self.llm = None
         self.index = None
         self.query_engine = None
+
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        print(f"Using device: {self.device}")
 
         self._init_vector_store()
         self._init_llm()
@@ -48,8 +54,8 @@ class GraphEmbeddingRAG:
         )
 
     def _init_llm(self):
-        self.llm = Ollama(model="llama3:instruct", request_timeout=360.0)
-        Settings.llm = self.llm
+        self.llm, self.tokenizer = get_llama_model(self.llama_path, self.device)
+        set_global_tokenizer(self.tokenizer)
 
     def fetch_graph_data(self):
         driver = GraphDatabase.driver(self.neo4j_uri, auth=(self.neo4j_user, self.neo4j_password))
@@ -100,13 +106,10 @@ class GraphEmbeddingRAG:
         if self.graph is None:
             raise ValueError("Graph data not fetched. Call fetch_graph_data() first.")
 
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        print(f"Using device: {device}")
-
-        self.embedding_model.process_graph(self.graph, device)
-        model = self.embedding_model.create_model(device)
-        self.embedding_model.train_model(model, device)
-        self.embeddings = self.embedding_model.generate_embeddings(model, device)
+        self.embedding_model.process_graph(self.graph, self.device)
+        model = self.embedding_model.create_model(self.device)
+        self.embedding_model.train_model(model, self.device)
+        self.embeddings = self.embedding_model.generate_embeddings(model, self.device)
 
     def add_to_vector_store(self):
         if self.graph is None or self.embeddings is None:
@@ -142,10 +145,8 @@ class GraphEmbeddingRAG:
     def init_index_and_query_engine(self):
         embed_model = PrecomputedEmbedding(self.embeddings)
 
-        # Initialize embed Settings
-        Settings.embed_model = embed_model
-        self.index = VectorStoreIndex.from_vector_store(self.vector_store)
-        self.query_engine = self.index.as_query_engine()
+        self.index = VectorStoreIndex.from_vector_store(self.vector_store, embed_model=embed_model)
+        self.query_engine = self.index.as_query_engine(llm=self.llm)
 
     def run_prompt(self, prompt):
         response = self.query_engine.query(prompt)

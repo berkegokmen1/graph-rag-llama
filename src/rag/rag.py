@@ -1,11 +1,12 @@
-from src.models.node2vec import Node2VecModel
-from src.models.emb import PrecomputedEmbedding
-from src.utils.json import CustomJSONEncoder
-from src.models.llama import get_llama_model
+from models.node2vec import Node2VecModel
+from models.emb import PrecomputedEmbedding
+from utils.json import CustomJSONEncoder
+from models.llama import get_llama_model
 from llama_index.vector_stores.neo4jvector import Neo4jVectorStore
 from llama_index.core.schema import TextNode
 
-# from llama_index.llms.ollama import Ollama
+# from transformers import AutoModelForCausalLM, AutoTokenizer
+from llama_index.llms.huggingface import HuggingFaceLLM
 from llama_index.core import VectorStoreIndex, set_global_tokenizer
 from neo4j import GraphDatabase
 import networkx as nx
@@ -20,14 +21,16 @@ class GraphEmbeddingRAG:
         neo4j_uri,
         neo4j_user,
         neo4j_password,
-        llama_path,
+        llama_model,
         embedding_dim=64,
         model_class=Node2VecModel,
     ):
+
+        # print(f"Neo4j URI: {neo4j_uri}, User: {neo4j_user}, Password: {neo4j_password}")
         self.neo4j_uri = neo4j_uri
         self.neo4j_user = neo4j_user
         self.neo4j_password = neo4j_password
-        self.llama_path = llama_path
+        self.llama_model = llama_model
         self.embedding_dim = embedding_dim
         self.embedding_model = model_class(embedding_dim)
         self.graph = None
@@ -54,22 +57,21 @@ class GraphEmbeddingRAG:
         )
 
     def _init_llm(self):
-        self.llm, self.tokenizer = get_llama_model(self.llama_path, self.device)
-        set_global_tokenizer(self.tokenizer)
+        self.llm, self.tokenizer = get_llama_model(self.llama_model, self.device)
 
-    def fetch_graph_data(self):
+    def fetch_graph_data(self, max_nodes=None, max_rels=None):
         driver = GraphDatabase.driver(self.neo4j_uri, auth=(self.neo4j_user, self.neo4j_password))
         G = nx.Graph()
 
         with driver.session() as session:
-            self._fetch_nodes(session, G)
-            self._fetch_relationships(session, G)
+            self._fetch_nodes(session, G, max_nodes)
+            self._fetch_relationships(session, G, max_rels)
 
         driver.close()
         self.graph = G
         return G
 
-    def _fetch_nodes(self, session, G):
+    def _fetch_nodes(self, session, G, max_nodes=None):
         batch_size = 1000
         offset = 0
         while True:
@@ -80,14 +82,19 @@ class GraphEmbeddingRAG:
             batch = list(result)
             if not batch:
                 break
+
+            if max_nodes is not None and offset >= max_nodes:
+                break
+
             for record in batch:
                 node_id = record["id"]
                 labels = record["labels"]
                 props = record["props"]
+                props.pop("label", None)
                 G.add_node(node_id, label=labels[0], **props)
             offset += batch_size
 
-    def _fetch_relationships(self, session, G):
+    def _fetch_relationships(self, session, G, max_rels=None):
         batch_size = 1000
         offset = 0
         while True:
@@ -98,6 +105,10 @@ class GraphEmbeddingRAG:
             batch = list(result)
             if not batch:
                 break
+
+            if max_rels is not None and offset >= max_rels:
+                break
+
             for record in batch:
                 G.add_edge(record["source"], record["target"], type=record["type"])
             offset += batch_size

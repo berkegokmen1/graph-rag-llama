@@ -15,6 +15,8 @@ class PrecomputedEmbedding(BaseEmbedding):
     def _get_query_embedding(self, query: str):
         # For queries, we'll use the average of all embeddings
         # This is a simple approach and might not be optimal for all use cases
+
+        print(f"Query: {query}")
         all_embeddings = np.array(list(self._embeddings.values()))
         return np.mean(all_embeddings, axis=0).tolist()
 
@@ -23,6 +25,8 @@ class PrecomputedEmbedding(BaseEmbedding):
         raise NotImplementedError("Async query embedding not supported for precomputed embeddings")
 
     def _get_text_embedding(self, text: str):
+
+        print(f"Text: {text}")
         # Assume the text is the node ID
         node_id = int(text.split(":")[1].split(",")[0].strip())
         return self._embeddings[node_id].tolist()

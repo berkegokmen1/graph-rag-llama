@@ -1,12 +1,12 @@
 import torch
 from torch_geometric.nn import Node2Vec
 from tqdm import tqdm
-from src.models.base import BaseGraphEmbeddingModel
+from models.base import BaseGraphEmbeddingModel
 
 
 class Node2VecModel(BaseGraphEmbeddingModel):
-    def process_graph(self, graph):
-        self.edge_index = torch.tensor(list(graph.edges())).t().contiguous()
+    def process_graph(self, graph, device):
+        self.edge_index = torch.tensor(list(graph.edges())).t().contiguous().to(device)
         self.graph = graph
 
     def create_model(self, device):
@@ -24,10 +24,12 @@ class Node2VecModel(BaseGraphEmbeddingModel):
 
     def train_model(self, model, device):
         loader = model.loader(batch_size=128, shuffle=True, num_workers=4)
-        optimizer = torch.optim.SparseAdam(model.parameters(), lr=0.01)
+        optimizer = torch.optim.SparseAdam(model.parameters(), lr=0.0001)
+
+        pbar = tqdm(range(10000), desc="Training")
 
         model.train()
-        for epoch in range(10):
+        for epoch in pbar:
             total_loss = 0
             for pos_rw, neg_rw in tqdm(loader, desc=f"Epoch {epoch+1}"):
                 optimizer.zero_grad()
@@ -35,7 +37,9 @@ class Node2VecModel(BaseGraphEmbeddingModel):
                 loss.backward()
                 optimizer.step()
                 total_loss += loss.item()
-            print(f"Epoch {epoch + 1}, Loss: {total_loss / len(loader)}")
+
+            pbar.set_description(f"Epoch {epoch + 1}, Loss: {total_loss / len(loader)}")
+            # print(f"Epoch {epoch + 1}, Loss: {total_loss / len(loader)}")
 
     def generate_embeddings(self, model, device):
         model.eval()

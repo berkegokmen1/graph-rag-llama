@@ -1,0 +1,7 @@
+neo4j:
+  neo4j_uri: bolt://localhost:7686
+  neo4j_user: neo4j
+  neo4j_password: berke123
+
+llama:
+  llama_model: meta-llama/Meta-Llama-3-8B-Instruct

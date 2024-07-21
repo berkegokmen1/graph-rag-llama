@@ -1,6 +1,6 @@
 import torch
 from torch_geometric.nn import DeepGraphInfomax
-from models.encoder import GCNEncoder
+from models.encoder import GCNEncoder, GCNVAE
 from models.base import BaseGraphEmbeddingModel
 from tqdm import tqdm
 
@@ -17,7 +17,7 @@ class DeepGraphInfomaxModel(BaseGraphEmbeddingModel):
         input_dim = self.features.shape[1]
         return DeepGraphInfomax(
             hidden_channels=self.embedding_dim,
-            encoder=GCNEncoder(input_dim, self.embedding_dim),
+            encoder=GCNVAE(input_dim, self.embedding_dim),
             summary=lambda z, *args, **kwargs: torch.sigmoid(z.mean(dim=0)),
             corruption=lambda x, edge_index: (x[torch.randperm(x.size(0))], edge_index),
         ).to(device)
